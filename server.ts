@@ -55,6 +55,49 @@ async function startServer() {
     }
   });
 
+  app.post("/api/admin/create-bucket", async (req, res) => {
+    const { bucketName } = req.body;
+
+    if (!supabaseAdmin) {
+      const missing = [];
+      if (!supabaseUrl) missing.push("VITE_SUPABASE_URL");
+      if (!supabaseServiceKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+
+      return res.status(500).json({ 
+        success: false, 
+        error: `Supabase Admin client not initialized. Missing: ${missing.join(", ")}. Please set these in your environment variables.` 
+      });
+    }
+
+    try {
+      // First check if it exists
+      const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
+      if (listError) throw listError;
+
+      const exists = buckets?.find(b => b.name === bucketName);
+      if (exists) {
+        return res.json({ success: true, message: 'Bucket already exists', data: exists });
+      }
+
+      const { data, error } = await supabaseAdmin.storage.createBucket(bucketName, {
+        public: true,
+        allowedMimeTypes: ['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        fileSizeLimit: 5242880 // 5MB
+      });
+
+      if (error) throw error;
+      
+      // Add a default policy for public access if it's a new bucket
+      // Note: This might require more complex SQL execution which might not be supported via the storage API directly
+      // but creating a public bucket usually sets up basic public read access.
+      
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      console.error(`Error creating bucket ${bucketName}:`, error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   app.post("/api/admin/reset-password/:id", async (req, res) => {
     const { id } = req.params;
     const { password } = req.body;
@@ -86,14 +129,38 @@ async function startServer() {
 
     if (supabaseAdmin) {
       try {
+        // Delete from related tables first to handle potential foreign key constraints
+        // although ON DELETE CASCADE is preferred in the database itself.
+        
+        // 1. Delete from students (if they are a student)
+        await supabaseAdmin.from('students').delete().eq('profile_id', id);
+        
+        // 2. Delete from teachers (if they are a teacher)
+        await supabaseAdmin.from('teachers').delete().eq('profile_id', id);
+        
+        // 3. Delete from profiles
+        await supabaseAdmin.from('profiles').delete().eq('id', id);
+
+        // 4. Finally delete from auth.users
         const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
-        if (error) throw error;
+        
+        if (error) {
+          // If the user doesn't exist in auth but we deleted the profile, that's still a success of sorts
+          if (error.message.includes('User not found')) {
+            return res.json({ success: true, message: 'User not found in auth, but profile data cleared' });
+          }
+          throw error;
+        }
+        
         return res.json({ success: true });
       } catch (error: any) {
+        console.error('Error deleting user:', error);
         return res.status(400).json({ success: false, error: error.message });
       }
     }
 
+    // In demo mode, we don't have supabaseAdmin, so we just return success.
+    // The frontend should handle local data deletion in demo mode.
     res.json({ success: true });
   });
 

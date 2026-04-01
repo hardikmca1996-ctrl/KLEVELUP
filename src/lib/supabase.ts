@@ -34,8 +34,8 @@ export interface Teacher {
   profile_id: string;
   qualification: string;
   class_id?: string;
-  subject_id?: string;
   profile?: Profile;
+  subjects?: Subject[];
 }
 
 export interface Student {

@@ -203,9 +203,9 @@ export default function ResultManagement() {
               </div>
             ) : (
               students.map((student) => (
-                <div key={student.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                <div key={student.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50 transition-colors">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold shrink-0">
                       {student.profile?.name[0]}
                     </div>
                     <div>
@@ -213,8 +213,8 @@ export default function ResultManagement() {
                       <p className="text-xs text-gray-500">{student.class}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="relative">
+                  <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+                    <div className="relative flex-1 sm:flex-none">
                       <input
                         type="number"
                         min="0"
@@ -232,12 +232,12 @@ export default function ResultManagement() {
                             handleMarkChange(student.id, val);
                           }
                         }}
-                        className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold"
+                        className="w-full sm:w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold"
                         placeholder="0"
                       />
                       <span className="absolute -top-6 left-0 text-[10px] uppercase font-bold text-gray-400">Marks</span>
                     </div>
-                    <div className="text-sm font-medium text-gray-400">
+                    <div className="text-sm font-medium text-gray-400 shrink-0">
                       / {selectedExamData?.total_marks}
                     </div>
                   </div>

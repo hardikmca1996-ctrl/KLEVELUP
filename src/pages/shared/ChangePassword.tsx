@@ -6,7 +6,7 @@ import { Lock, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ChangePassword() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, refreshProfile } = useAuth();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -52,15 +52,15 @@ export default function ChangePassword() {
 
       if (profileError) throw profileError;
 
+      // Refresh the profile in AuthContext to update must_change_password state
+      await refreshProfile();
+
       toast.success('Password changed successfully!');
       
       // Redirect based on role
       if (profile?.role === 'admin') navigate('/admin');
       else if (profile?.role === 'teacher') navigate('/teacher');
       else navigate('/student');
-      
-      // Force reload to update auth state
-      window.location.reload();
     } catch (error: any) {
       toast.error(error.message);
     } finally {

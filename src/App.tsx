@@ -72,6 +72,7 @@ export default function App() {
               <Route path="/student/exams" element={<ExamManagement />} />
               <Route path="/student/results" element={<StudentResults />} />
               <Route path="/student/notes" element={<StudentNotes />} />
+              <Route path="/student/announcements" element={<AnnouncementManagement />} />
             </Route>
           </Route>
 

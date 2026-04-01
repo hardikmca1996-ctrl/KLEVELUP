@@ -41,6 +41,25 @@ export default function AnnouncementManagement() {
 
   useEffect(() => {
     fetchData();
+    
+    const subscription = supabase
+      .channel('announcement-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'announcements'
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   async function fetchData() {
@@ -48,7 +67,7 @@ export default function AnnouncementManagement() {
       setLoading(true);
       
       // Fetch announcements with author and class info
-      const { data: announcementsData, error: announcementsError } = await supabase
+      let query = supabase
         .from('announcements')
         .select(`
           *,
@@ -56,6 +75,22 @@ export default function AnnouncementManagement() {
           class:classes(name)
         `)
         .order('created_at', { ascending: false });
+
+      if (profile?.role === 'student') {
+        const { data: studentData } = await supabase
+          .from('students')
+          .select('class_id')
+          .eq('profile_id', profile.id)
+          .single();
+        
+        if (studentData?.class_id) {
+          query = query.or(`class_id.is.null,class_id.eq.${studentData.class_id}`);
+        } else {
+          query = query.is('class_id', null);
+        }
+      }
+
+      const { data: announcementsData, error: announcementsError } = await query;
 
       if (announcementsError) {
         if (announcementsError.message.includes("Could not find the table 'public.announcements'")) {
@@ -68,13 +103,15 @@ export default function AnnouncementManagement() {
       setTableMissing(false);
 
       // Fetch classes for the dropdown
-      const { data: classesData, error: classesError } = await supabase
-        .from('classes')
-        .select('id, name')
-        .order('name');
+      if (profile?.role !== 'student') {
+        const { data: classesData, error: classesError } = await supabase
+          .from('classes')
+          .select('id, name')
+          .order('name');
 
-      if (classesError) throw classesError;
-      setClasses(classesData || []);
+        if (classesError) throw classesError;
+        setClasses(classesData || []);
+      }
     } catch (error: any) {
       toast.error('Error fetching data: ' + error.message);
     } finally {
@@ -84,7 +121,7 @@ export default function AnnouncementManagement() {
 
   async function handleAddAnnouncement(e: React.FormEvent) {
     e.preventDefault();
-    if (!profile) return;
+    if (!profile || profile.role === 'student') return;
 
     try {
       const { error } = await supabase
@@ -133,13 +170,15 @@ export default function AnnouncementManagement() {
           <h1 className="text-2xl font-bold text-gray-900">Announcements</h1>
           <p className="text-gray-500">Manage and broadcast messages to students.</p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Announcement
-        </button>
+        {profile?.role !== 'student' && (
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Announcement
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -206,12 +245,14 @@ CREATE POLICY "Admins and teachers can manage announcements" ON announcements FO
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDeleteAnnouncement(announcement.id)}
-                  className="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {profile?.role !== 'student' && (
+                  <button
+                    onClick={() => handleDeleteAnnouncement(announcement.id)}
+                    className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
               
               <p className="text-gray-600 text-sm flex-1 mb-4 whitespace-pre-wrap">

@@ -1,5 +1,5 @@
 {
-  "name": "KLEVLUP - Tuition Management System",
+  "name": "KLEVELUP - Tuition Management System",
   "description": "A comprehensive Tuition Management System with role-based access for Admins, Teachers, and Students, powered by Supabase.",
   "requestFramePermissions": []
 }

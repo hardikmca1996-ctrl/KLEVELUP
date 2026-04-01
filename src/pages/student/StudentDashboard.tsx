@@ -37,7 +37,46 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (profile) fetchData();
+    if (profile) {
+      fetchData();
+      
+      // Subscribe to real-time attendance updates
+      const attendanceSubscription = supabase
+        .channel('attendance-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'attendance'
+          },
+          () => {
+            fetchData();
+          }
+        )
+        .subscribe();
+
+      // Subscribe to real-time announcement updates
+      const announcementSubscription = supabase
+        .channel('announcement-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'announcements'
+          },
+          () => {
+            fetchData();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(attendanceSubscription);
+        supabase.removeChannel(announcementSubscription);
+      };
+    }
   }, [profile]);
 
   async function fetchData() {

@@ -22,7 +22,7 @@ export default function TeacherManagement() {
     password: '',
     qualification: '',
     class_id: '',
-    subject_id: ''
+    subject_ids: [] as string[]
   });
 
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
@@ -60,7 +60,7 @@ export default function TeacherManagement() {
           *,
           profile:profiles(*),
           class:classes(*),
-          subject:subjects!subject_id(*)
+          subjects:subjects!teacher_id(id, name)
         `);
 
       if (error) throw error;
@@ -95,27 +95,25 @@ export default function TeacherManagement() {
           .from('teachers')
           .update({
             qualification: formData.qualification,
-            class_id: formData.class_id || null,
-            subject_id: formData.subject_id || null
+            class_id: formData.class_id || null
           })
           .eq('id', editingTeacherId);
 
         if (teacherError) throw teacherError;
 
-        // Update subject assignment if changed
-        if (formData.subject_id && formData.subject_id !== teacherToUpdate.subject_id) {
-          // Remove from old subject
-          if (teacherToUpdate.subject_id) {
-            await supabase
-              .from('subjects')
-              .update({ teacher_id: null })
-              .eq('id', teacherToUpdate.subject_id);
-          }
-          // Assign to new subject
+        // Update subject assignments
+        // 1. Remove teacher_id from all subjects currently assigned to this teacher
+        await supabase
+          .from('subjects')
+          .update({ teacher_id: null })
+          .eq('teacher_id', editingTeacherId);
+
+        // 2. Assign teacher_id to newly selected subjects
+        if (formData.subject_ids.length > 0) {
           await supabase
             .from('subjects')
             .update({ teacher_id: editingTeacherId })
-            .eq('id', formData.subject_id);
+            .in('id', formData.subject_ids);
         }
 
         toast.success('Teacher updated successfully');
@@ -163,8 +161,7 @@ export default function TeacherManagement() {
           id: teacherId,
           profile_id: profileId,
           qualification: formData.qualification,
-          class_id: formData.class_id || null,
-          subject_id: formData.subject_id || null
+          class_id: formData.class_id || null
         }]);
 
         if (teacherError) {
@@ -172,21 +169,21 @@ export default function TeacherManagement() {
           throw teacherError;
         }
 
-        // Assign to subject if selected
-        if (formData.subject_id) {
+        // Assign to subjects if selected
+        if (formData.subject_ids.length > 0) {
           const { error: subjectError } = await supabase
             .from('subjects')
             .update({ teacher_id: teacherId })
-            .eq('id', formData.subject_id);
+            .in('id', formData.subject_ids);
           
           if (subjectError) throw subjectError;
         }
 
-        toast.success('Teacher created and assigned to subject successfully');
+        toast.success('Teacher created and assigned to subjects successfully');
       }
 
       setIsModalOpen(false);
-      setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_id: '' });
+      setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_ids: [] });
       setIsEditMode(false);
       setEditingTeacherId(null);
       await fetchTeachers();
@@ -203,6 +200,7 @@ export default function TeacherManagement() {
     if (!confirm('Are you sure you want to delete this teacher? This will also delete their auth account.')) return;
 
     try {
+      // 1. Delete from auth user via backend API
       const response = await fetch(`/api/admin/delete-user/${userId}`, {
         method: 'DELETE'
       });
@@ -211,6 +209,20 @@ export default function TeacherManagement() {
         const result = await response.json();
         throw new Error(result.error);
       }
+
+      // 2. Explicitly delete from teachers table in the frontend
+      // This is crucial for Demo Mode and ensures the Admin Dashboard gets the event
+      const { error: teacherError } = await supabase
+        .from('teachers')
+        .delete()
+        .eq('profile_id', userId);
+
+      if (teacherError) {
+        console.error('Error deleting teacher record:', teacherError);
+      }
+
+      // 3. Delete from profiles table
+      await supabase.from('profiles').delete().eq('id', userId);
 
       toast.success('Teacher deleted successfully');
       fetchTeachers();
@@ -226,7 +238,7 @@ export default function TeacherManagement() {
       password: '', // Don't show password
       qualification: teacher.qualification || '',
       class_id: teacher.class_id || '',
-      subject_id: teacher.subject_id || ''
+      subject_ids: teacher.subjects?.map(s => s.id) || []
     });
     setEditingTeacherId(teacher.id);
     setIsEditMode(true);
@@ -234,7 +246,7 @@ export default function TeacherManagement() {
   };
 
   const openAddModal = () => {
-    setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_id: '' });
+    setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_ids: [] });
     setIsEditMode(false);
     setEditingTeacherId(null);
     setIsModalOpen(true);
@@ -360,18 +372,18 @@ export default function TeacherManagement() {
                     <td className="px-6 py-4 text-gray-600">{teacher.profile?.email}</td>
                     <td className="px-6 py-4 text-gray-600">{teacher.qualification}</td>
                     <td className="px-6 py-4 text-gray-600">
-                      {teacher.class_id || teacher.subject_id ? (
+                      {(teacher.class_id || (teacher.subjects && teacher.subjects.length > 0)) ? (
                         <div className="flex flex-col gap-1">
                           {teacher.class_id && (
                             <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full w-fit">
                               {classes.find(c => c.id === teacher.class_id)?.name || 'Unknown Class'}
                             </span>
                           )}
-                          {teacher.subject_id && (
-                            <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit">
-                              {subjects.find(s => s.id === teacher.subject_id)?.name || 'Unknown Subject'}
+                          {teacher.subjects?.map(subject => (
+                            <span key={subject.id} className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit">
+                              {subject.name}
                             </span>
-                          )}
+                          ))}
                         </div>
                       ) : (
                         <span className="italic text-gray-400">Not assigned</span>
@@ -468,43 +480,80 @@ export default function TeacherManagement() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Assign Class</label>
-                  <div className="relative">
-                    <School className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <select
-                      value={formData.class_id}
-                      onChange={(e) => setFormData({ ...formData, class_id: e.target.value, subject_id: '' })}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
-                    >
-                      <option value="">Select Class</option>
-                      {classes.map(cls => (
-                        <option key={cls.id} value={cls.id}>{cls.name} ({cls.grade})</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Assign Subject</label>
-                  <div className="relative">
-                    <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <select
-                      value={formData.subject_id}
-                      onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
-                      disabled={!formData.class_id}
-                    >
-                      <option value="">Select Subject</option>
-                      {subjects
-                        .filter(s => s.class_id === formData.class_id)
-                        .map(subject => (
-                          <option key={subject.id} value={subject.id}>{subject.name}</option>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Assign Class (Class Teacher)</label>
+                    <div className="relative">
+                      <School className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <select
+                        value={formData.class_id}
+                        onChange={(e) => setFormData({ ...formData, class_id: e.target.value })}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
+                      >
+                        <option value="">Select Class</option>
+                        {classes.map(cls => (
+                          <option key={cls.id} value={cls.id}>{cls.name} ({cls.grade})</option>
                         ))}
-                    </select>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Assign Subjects</label>
+                    <div className="space-y-4 max-h-48 overflow-y-auto p-3 border border-gray-300 rounded-lg bg-gray-50">
+                      {classes.map(cls => {
+                        const classSubjects = subjects.filter(s => s.class_id === cls.id);
+                        if (classSubjects.length === 0) return null;
+                        return (
+                          <div key={cls.id} className="space-y-1">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-200 pb-1 mb-2">{cls.name}</p>
+                            <div className="grid grid-cols-1 gap-1">
+                              {classSubjects.map(subject => (
+                                <label key={subject.id} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1.5 rounded transition-colors group">
+                                  <input
+                                    type="checkbox"
+                                    checked={formData.subject_ids.includes(subject.id)}
+                                    onChange={(e) => {
+                                      const newIds = e.target.checked
+                                        ? [...formData.subject_ids, subject.id]
+                                        : formData.subject_ids.filter(id => id !== subject.id);
+                                      setFormData({ ...formData, subject_ids: newIds });
+                                    }}
+                                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                                  />
+                                  <span className="text-sm text-gray-700 group-hover:text-indigo-600">{subject.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {subjects.filter(s => !s.class_id).length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-200 pb-1 mb-2">Other Subjects</p>
+                          <div className="grid grid-cols-1 gap-1">
+                            {subjects.filter(s => !s.class_id).map(subject => (
+                              <label key={subject.id} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1.5 rounded transition-colors group">
+                                <input
+                                  type="checkbox"
+                                  checked={formData.subject_ids.includes(subject.id)}
+                                  onChange={(e) => {
+                                    const newIds = e.target.checked
+                                      ? [...formData.subject_ids, subject.id]
+                                      : formData.subject_ids.filter(id => id !== subject.id);
+                                    setFormData({ ...formData, subject_ids: newIds });
+                                  }}
+                                  className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                                />
+                                <span className="text-sm text-gray-700 group-hover:text-indigo-600">{subject.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {subjects.length === 0 && <p className="text-xs text-gray-500 italic">No subjects available</p>}
+                    </div>
                   </div>
                 </div>
-              </div>
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"

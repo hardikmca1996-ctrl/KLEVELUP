@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, type Exam, type Subject, type Teacher } from '../../lib/supabase';
-import { Plus, GraduationCap, Calendar, BookOpen, User, Loader2, Trash2, School, FileText, ExternalLink } from 'lucide-react';
+import { Plus, GraduationCap, Calendar, BookOpen, User, Loader2, Trash2, School, FileText, ExternalLink, Check } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner';
 import { formatDate } from '../../lib/utils';
@@ -23,8 +23,29 @@ export default function ExamManagement() {
     pdf_url: ''
   });
 
+  const [uploadMethod, setUploadMethod] = useState<'upload' | 'url' | 'gdrive'>('upload');
+
   useEffect(() => {
     fetchData();
+    
+    const subscription = supabase
+      .channel('exam-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'exams'
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, [profile]);
 
   async function fetchData() {
@@ -94,19 +115,51 @@ export default function ExamManagement() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.type !== 'application/pdf') {
-        toast.error('Please upload a PDF file');
-        return;
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      toast.error('Please upload a PDF file');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be less than 10MB');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `exams/${fileName}`;
+      let publicUrl = '';
+
+      // Try to upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('notes') // Reusing the notes bucket for exams to simplify
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.warn('Storage upload failed, falling back to base64:', uploadError);
+        // Fallback to base64 if storage fails
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setFormData(prev => ({ ...prev, pdf_url: reader.result as string }));
+          toast.success('File ready (local storage)');
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const { data: { publicUrl: url } } = supabase.storage
+          .from('notes')
+          .getPublicUrl(filePath);
+        publicUrl = url;
+        setFormData(prev => ({ ...prev, pdf_url: publicUrl }));
+        toast.success('File uploaded successfully');
       }
-      
-      // In a real app, we would upload to Supabase Storage
-      // For mock, we'll convert to base64
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, pdf_url: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
+    } catch (error: any) {
+      toast.error('Upload failed: ' + error.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -331,28 +384,85 @@ export default function ExamManagement() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Question Paper (PDF)</label>
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    onChange={handleFileChange}
-                    className="hidden"
-                    id="pdf-upload"
-                  />
-                  <label
-                    htmlFor="pdf-upload"
-                    className="flex items-center justify-center gap-2 w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition-all"
-                  >
-                    <FileText className="w-5 h-5 text-gray-400" />
-                    <span className="text-sm text-gray-600">
-                      {formData.pdf_url ? 'PDF Selected' : 'Click to upload question paper'}
-                    </span>
-                  </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Question Paper (PDF)</label>
+                  <div className="flex bg-gray-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('upload')}
+                      className={`px-3 py-1 text-[10px] font-medium rounded-md transition-colors whitespace-nowrap ${uploadMethod === 'upload' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('url')}
+                      className={`px-3 py-1 text-[10px] font-medium rounded-md transition-colors whitespace-nowrap ${uploadMethod === 'url' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Direct Link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('gdrive')}
+                      className={`px-3 py-1 text-[10px] font-medium rounded-md transition-colors whitespace-nowrap ${uploadMethod === 'gdrive' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Google Drive
+                    </button>
+                  </div>
                 </div>
+
+                {uploadMethod === 'upload' ? (
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      id="pdf-upload"
+                      disabled={isSubmitting}
+                    />
+                    <label
+                      htmlFor="pdf-upload"
+                      className="flex items-center justify-center gap-2 w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition-all"
+                    >
+                      <FileText className="w-5 h-5 text-gray-400" />
+                      <span className="text-sm text-gray-600">
+                        {formData.pdf_url ? 'PDF Selected' : 'Click to upload question paper'}
+                      </span>
+                    </label>
+                  </div>
+                ) : uploadMethod === 'url' ? (
+                  <div>
+                    <input
+                      type="url"
+                      required
+                      value={formData.pdf_url}
+                      onChange={(e) => setFormData({ ...formData, pdf_url: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="https://example.com/exam.pdf"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1 italic">
+                      Paste a direct link to the PDF.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="url"
+                      required
+                      value={formData.pdf_url}
+                      onChange={(e) => setFormData({ ...formData, pdf_url: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="https://drive.google.com/file/d/..."
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1 italic">
+                      Paste your Google Drive link. <strong>Important:</strong> Ensure the file is set to "Anyone with the link can view".
+                    </p>
+                  </div>
+                )}
                 {formData.pdf_url && (
                   <p className="mt-1 text-xs text-green-600 flex items-center gap-1">
-                    <Plus className="w-3 h-3" /> File ready to upload
+                    <Check className="w-3 h-3" /> File ready
                   </p>
                 )}
               </div>

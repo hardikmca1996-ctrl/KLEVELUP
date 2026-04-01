@@ -23,6 +23,25 @@ export default function LectureManagement() {
 
   useEffect(() => {
     fetchData();
+    
+    const subscription = supabase
+      .channel('lecture-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'lectures'
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, [profile]);
 
   async function fetchData() {

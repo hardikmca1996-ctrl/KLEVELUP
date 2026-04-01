@@ -8,7 +8,9 @@ import {
   BookOpen,
   School,
   FileUp,
-  X
+  X,
+  Check,
+  Loader2
 } from 'lucide-react';
 import { supabase, isDemoMode } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -41,11 +43,19 @@ interface Subject {
   name: string;
 }
 
+interface Teacher {
+  id: string;
+  profile: {
+    name: string;
+  };
+}
+
 export default function NotesManagement() {
   const { profile } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,63 +67,86 @@ export default function NotesManagement() {
     description: '',
     class_id: '',
     subject_id: '',
+    teacher_id: '',
     file_url: ''
   });
+  const [uploadMethod, setUploadMethod] = useState<'upload' | 'url' | 'gdrive'>('upload');
 
   useEffect(() => {
     fetchInitialData();
     checkBucket();
   }, []);
 
-  async function checkBucket() {
-    if (isDemoMode) {
-      setBucketExists(true);
-      return;
-    }
+  async function ensureBucketExists() {
+    if (isDemoMode) return true;
+    
     try {
       // More reliable way to check bucket existence without requiring 'listBuckets' permissions
       const { data, error } = await supabase.storage.from('notes').list('', { limit: 1 });
       
       if (error) {
         if (error.message.includes('not found') || (error as any).status === 404) {
-          setBucketExists(false);
-          
-          // Attempt to create the bucket if it's missing (might fail if not admin)
-          const { error: createError } = await supabase.storage.createBucket('notes', {
-            public: true,
-            allowedMimeTypes: ['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-            fileSizeLimit: 5242880 // 5MB
-          });
-          
-          if (!createError) {
-            setBucketExists(true);
-            console.log('Successfully created "notes" bucket');
+          // Attempt to create the bucket via backend API
+          try {
+            const response = await fetch('/api/admin/create-bucket', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ bucketName: 'notes' })
+            });
+            
+            const result = await response.json();
+            if (result.success) {
+              setBucketExists(true);
+              return true;
+            } else {
+              console.warn('Backend bucket creation failed:', result.error);
+              setBucketExists(false);
+              return false;
+            }
+          } catch (apiError) {
+            console.error('Error calling create-bucket API:', apiError);
+            setBucketExists(false);
+            return false;
           }
         } else {
           // Some other error (e.g. permission denied on listing objects)
           // We assume the bucket exists but we just can't list it
           setBucketExists(true);
+          return true;
         }
       } else {
         // No error, bucket exists
         setBucketExists(true);
+        return true;
       }
     } catch (error) {
       console.warn('Error checking bucket:', error);
       setBucketExists(true); // Default to true on unexpected error
+      return true;
     }
+  }
+
+  async function checkBucket() {
+    await ensureBucketExists();
   }
 
   async function fetchInitialData() {
     try {
-      const [notesRes, classesRes, subjectsRes] = await Promise.all([
+      const queries: any[] = [
         supabase
           .from('notes')
-          .select('*, class:classes(name, grade), subject:subjects(name), teacher:teachers(profile:profiles(name))')
+          .select('*, class:classes(name, grade), subject:subjects(name), teacher:teachers(id, profile:profiles(name))')
           .order('created_at', { ascending: false }),
         supabase.from('classes').select('*').order('name'),
         supabase.from('subjects').select('*').order('name')
-      ]);
+      ];
+
+      if (profile?.role === 'admin') {
+        queries.push(supabase.from('teachers').select('id, profile:profiles(name)').order('created_at'));
+      }
+
+      const results = await Promise.all(queries);
+      const [notesRes, classesRes, subjectsRes, teachersRes] = results;
 
       if (notesRes.error) throw notesRes.error;
       if (classesRes.error) throw classesRes.error;
@@ -122,6 +155,11 @@ export default function NotesManagement() {
       setNotes(notesRes.data || []);
       setClasses(classesRes.data || []);
       setSubjects(subjectsRes.data || []);
+      
+      if (profile?.role === 'admin' && teachersRes) {
+        if (teachersRes.error) throw teachersRes.error;
+        setTeachers(teachersRes.data || []);
+      }
     } catch (error: any) {
       toast.error('Error fetching data: ' + error.message);
     } finally {
@@ -133,42 +171,47 @@ export default function NotesManagement() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file size (limit to 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size must be less than 5MB');
+    // Check file size (limit to 10MB for better flexibility)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File size must be less than 10MB');
       return;
     }
 
     setIsSubmitting(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `notes/${fileName}`;
+      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `${fileName}`;
       let publicUrl = '';
 
       if (isDemoMode) {
         publicUrl = `https://mock-storage.com/notes/${fileName}`;
       } else {
-        // Check if bucket exists first
-        const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
-        if (bucketsError) {
-          console.warn('Could not list buckets:', bucketsError);
-        } else {
-          const notesBucket = buckets?.find(b => b.name === 'notes');
-          if (!notesBucket) {
-            throw new Error('Bucket "notes" not found. Please create a public bucket named "notes" in your Supabase Storage dashboard.');
-          }
-        }
-
+        // Ensure bucket exists before upload
+        const exists = await ensureBucketExists();
+        
         const { error: uploadError } = await supabase.storage
           .from('notes')
-          .upload(filePath, file);
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
 
         if (uploadError) {
           if (uploadError.message.includes('Bucket not found')) {
-            throw new Error('Bucket "notes" not found. Please create a public bucket named "notes" in your Supabase Storage dashboard.');
+            // Try one last time to create it
+            const created = await ensureBucketExists();
+            if (created) {
+              const { error: retryError } = await supabase.storage
+                .from('notes')
+                .upload(filePath, file);
+              if (retryError) throw retryError;
+            } else {
+              throw new Error('Bucket "notes" not found. Please use the "Manual URL" option or create the bucket in Supabase.');
+            }
+          } else {
+            throw uploadError;
           }
-          throw uploadError;
         }
 
         const { data: { publicUrl: url } } = supabase.storage
@@ -181,12 +224,8 @@ export default function NotesManagement() {
       toast.success('File uploaded successfully');
     } catch (error: any) {
       console.error('Upload error:', error);
-      toast.error('Error uploading file. Make sure "notes" bucket exists in Supabase Storage.');
-      // Fallback: allow manual URL entry if upload fails
-      const manualUrl = prompt('Storage upload failed. Please provide a direct URL to the file:');
-      if (manualUrl) {
-        setFormData(prev => ({ ...prev, file_url: manualUrl }));
-      }
+      toast.error('Upload failed: ' + (error.message || 'Unknown error'));
+      setUploadMethod('url'); // Switch to URL method on failure
     } finally {
       setIsSubmitting(false);
     }
@@ -195,29 +234,44 @@ export default function NotesManagement() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.file_url) {
-      toast.error('Please upload a file first');
+      toast.error('Please upload a file or provide a URL');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // Get teacher ID for the current user
-      const { data: teacherData, error: teacherError } = await supabase
-        .from('teachers')
-        .select('id')
-        .eq('profile_id', profile?.id)
-        .single();
+      let teacherId = formData.teacher_id;
 
-      if (teacherError && profile?.role !== 'admin') throw teacherError;
+      // If teacher_id not set manually (e.g. by admin), try to get current user's teacher record
+      if (!teacherId) {
+        const { data: teacherData } = await supabase
+          .from('teachers')
+          .select('id')
+          .eq('profile_id', profile?.id)
+          .single();
+        
+        teacherId = teacherData?.id || '';
+      }
+
+      // If still no teacherId and it's an admin, we must pick one or error
+      if (!teacherId && profile?.role === 'admin') {
+        // Try to find any teacher to associate with
+        const { data: anyTeacher } = await supabase.from('teachers').select('id').limit(1).single();
+        teacherId = anyTeacher?.id || '';
+      }
+
+      if (!teacherId) {
+        throw new Error('No teacher record found to associate with this note. Please ensure at least one teacher exists.');
+      }
 
       const noteData = {
-        ...formData,
-        teacher_id: teacherData?.id || (profile?.role === 'admin' ? notes[0]?.teacher_id : null)
+        title: formData.title,
+        description: formData.description,
+        class_id: formData.class_id,
+        subject_id: formData.subject_id,
+        file_url: formData.file_url,
+        teacher_id: teacherId
       };
-
-      if (!noteData.teacher_id && profile?.role !== 'admin') {
-        throw new Error('Teacher record not found');
-      }
 
       const { error } = await supabase.from('notes').insert([noteData]);
 
@@ -225,7 +279,7 @@ export default function NotesManagement() {
 
       toast.success('Note added successfully');
       setIsModalOpen(false);
-      setFormData({ title: '', description: '', class_id: '', subject_id: '', file_url: '' });
+      setFormData({ title: '', description: '', class_id: '', subject_id: '', teacher_id: '', file_url: '' });
       fetchInitialData();
     } catch (error: any) {
       toast.error('Error adding note: ' + error.message);
@@ -465,7 +519,7 @@ $$;`;
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                  rows={3}
+                  rows={2}
                   placeholder="Brief description of the note..."
                 />
               </div>
@@ -501,27 +555,103 @@ $$;`;
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">File Attachment</label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-indigo-500 transition-colors cursor-pointer relative">
-                  <div className="space-y-1 text-center">
-                    <FileUp className="mx-auto h-12 w-12 text-gray-400" />
-                    <div className="flex text-sm text-gray-600">
-                      <label className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none">
-                        <span>Upload a file</span>
-                        <input type="file" className="sr-only" onChange={handleFileUpload} disabled={isSubmitting} />
-                      </label>
-                      <p className="pl-1">or drag and drop</p>
-                    </div>
-                    <p className="text-xs text-gray-500">PDF, PNG, JPG up to 5MB</p>
-                    <p className="text-[10px] text-gray-400 mt-1 italic">
-                      Note: Ensure a public bucket named "notes" exists in Supabase Storage.
-                    </p>
-                    {formData.file_url && (
-                      <p className="text-xs text-green-600 font-medium mt-2">File ready: {formData.file_url.split('/').pop()}</p>
-                    )}
+              {profile?.role === 'admin' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Associate with Teacher</label>
+                  <select
+                    required
+                    value={formData.teacher_id}
+                    onChange={(e) => setFormData({ ...formData, teacher_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="">Select Teacher</option>
+                    {teachers.map((t: Teacher) => (
+                      <option key={t.id} value={t.id}>{t.profile?.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1 italic">
+                    Admin: Please select which teacher this note belongs to.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">File Content</label>
+                  <div className="flex bg-gray-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('upload')}
+                      className={`px-3 py-1 text-[10px] font-medium rounded-md transition-colors whitespace-nowrap ${uploadMethod === 'upload' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('url')}
+                      className={`px-3 py-1 text-[10px] font-medium rounded-md transition-colors whitespace-nowrap ${uploadMethod === 'url' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Direct Link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadMethod('gdrive')}
+                      className={`px-3 py-1 text-[10px] font-medium rounded-md transition-colors whitespace-nowrap ${uploadMethod === 'gdrive' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Google Drive
+                    </button>
                   </div>
                 </div>
+
+                {uploadMethod === 'upload' ? (
+                  <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-indigo-500 transition-colors cursor-pointer relative">
+                    <div className="space-y-1 text-center">
+                      <FileUp className="mx-auto h-10 w-10 text-gray-400" />
+                      <div className="flex text-sm text-gray-600">
+                        <label className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none">
+                          <span>Upload a file</span>
+                          <input type="file" className="sr-only" onChange={handleFileUpload} disabled={isSubmitting} accept=".pdf,.doc,.docx,image/*" />
+                        </label>
+                        <p className="pl-1">or drag and drop</p>
+                      </div>
+                      <p className="text-xs text-gray-500">PDF, Images up to 10MB</p>
+                      {formData.file_url && (
+                        <div className="mt-2 flex items-center justify-center gap-2 text-xs text-green-600 font-medium">
+                          <Check className="w-4 h-4" />
+                          <span>File ready</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : uploadMethod === 'url' ? (
+                  <div>
+                    <input
+                      type="url"
+                      required
+                      value={formData.file_url}
+                      onChange={(e) => setFormData({ ...formData, file_url: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="https://example.com/notes.pdf"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1 italic">
+                      Paste a direct link to the PDF (e.g. from Dropbox, etc.)
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="url"
+                      required
+                      value={formData.file_url}
+                      onChange={(e) => setFormData({ ...formData, file_url: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="https://drive.google.com/file/d/..."
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1 italic">
+                      Paste your Google Drive link. <strong>Important:</strong> Ensure the file is set to "Anyone with the link can view".
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -535,8 +665,9 @@ $$;`;
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
+                  {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                   {isSubmitting ? 'Processing...' : 'Add Note'}
                 </button>
               </div>

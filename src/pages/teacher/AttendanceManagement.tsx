@@ -164,9 +164,9 @@ export default function AttendanceManagement() {
               </div>
             ) : (
               students.map((student) => (
-                <div key={student.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                <div key={student.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50 transition-colors">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold shrink-0">
                       {student.profile?.name[0]}
                     </div>
                     <div>
@@ -174,11 +174,11 @@ export default function AttendanceManagement() {
                       <p className="text-xs text-gray-500">{student.class}</p>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 w-full sm:w-auto">
                     <button
                       onClick={() => setAttendance(prev => ({ ...prev, [student.id]: 'present' }))}
                       className={cn(
-                        "flex items-center gap-2 px-4 py-2 rounded-lg border transition-all",
+                        "flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-all text-sm",
                         attendance[student.id] === 'present'
                           ? "bg-green-50 border-green-200 text-green-700"
                           : "bg-white border-gray-200 text-gray-400 hover:border-green-200 hover:text-green-600"
@@ -190,7 +190,7 @@ export default function AttendanceManagement() {
                     <button
                       onClick={() => setAttendance(prev => ({ ...prev, [student.id]: 'absent' }))}
                       className={cn(
-                        "flex items-center gap-2 px-4 py-2 rounded-lg border transition-all",
+                        "flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-all text-sm",
                         attendance[student.id] === 'absent'
                           ? "bg-red-50 border-red-200 text-red-700"
                           : "bg-white border-gray-200 text-gray-400 hover:border-red-200 hover:text-red-600"

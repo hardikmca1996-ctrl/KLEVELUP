@@ -11,7 +11,28 @@ export default function StudentAttendance() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (profile) fetchAttendance();
+    if (profile) {
+      fetchAttendance();
+      
+      const subscription = supabase
+        .channel('attendance-updates')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'attendance'
+          },
+          () => {
+            fetchAttendance();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(subscription);
+      };
+    }
   }, [profile]);
 
   async function fetchAttendance() {

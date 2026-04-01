@@ -206,6 +206,7 @@ export default function StudentManagement() {
 
   const handleDeleteStudent = async (userId: string) => {
     try {
+      // 1. Delete from auth user via backend API
       const response = await fetch(`/api/admin/delete-user/${userId}`, {
         method: 'DELETE'
       });
@@ -214,6 +215,21 @@ export default function StudentManagement() {
         const result = await response.json();
         throw new Error(result.error);
       }
+
+      // 2. Explicitly delete from students table in the frontend
+      // This is crucial for Demo Mode and ensures the Admin Dashboard gets the event
+      const { error: studentError } = await supabase
+        .from('students')
+        .delete()
+        .eq('profile_id', userId);
+
+      if (studentError) {
+        console.error('Error deleting student record:', studentError);
+        // We don't throw here because the auth user is already deleted
+      }
+
+      // 3. Delete from profiles table
+      await supabase.from('profiles').delete().eq('id', userId);
 
       toast.success('Student deleted successfully');
       setDeletingId(null);
