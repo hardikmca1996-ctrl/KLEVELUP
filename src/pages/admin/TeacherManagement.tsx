@@ -1,0 +1,583 @@
+import React, { useEffect, useState } from 'react';
+import { supabase, type Teacher, type Class, type Subject, isDemoMode } from '../../lib/supabase';
+import { UserPlus, Trash2, Search, Loader2, Mail, GraduationCap, School, BookOpen, Edit2, Key } from 'lucide-react';
+import { toast } from 'sonner';
+import { generateUUID } from '../../lib/utils';
+
+export default function TeacherManagement() {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [classes, setClasses] = useState<Class[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+
+  // Form State
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    qualification: '',
+    class_id: '',
+    subject_id: ''
+  });
+
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetPasswordData, setResetPasswordData] = useState({ profileId: '', name: '', password: '' });
+
+  useEffect(() => {
+    fetchInitialData();
+  }, []);
+
+  async function fetchInitialData() {
+    setLoading(true);
+    await Promise.all([
+      fetchTeachers(),
+      fetchClasses(),
+      fetchSubjects()
+    ]);
+    setLoading(false);
+  }
+
+  async function fetchClasses() {
+    const { data } = await supabase.from('classes').select('*');
+    setClasses(data || []);
+  }
+
+  async function fetchSubjects() {
+    const { data } = await supabase.from('subjects').select('*');
+    setSubjects(data || []);
+  }
+
+  async function fetchTeachers() {
+    try {
+      const { data, error } = await supabase
+        .from('teachers')
+        .select(`
+          *,
+          profile:profiles(*),
+          class:classes(*),
+          subject:subjects!subject_id(*)
+        `);
+
+      if (error) throw error;
+      setTeachers(data || []);
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  }
+
+  const handleCreateTeacher = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      if (isEditMode && editingTeacherId) {
+        const teacherToUpdate = teachers.find(t => t.id === editingTeacherId);
+        if (!teacherToUpdate) throw new Error('Teacher not found');
+
+        // Update profile
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            name: formData.name,
+            email: formData.email
+          })
+          .eq('id', teacherToUpdate.profile_id);
+
+        if (profileError) throw profileError;
+
+        // Update teacher
+        const { error: teacherError } = await supabase
+          .from('teachers')
+          .update({
+            qualification: formData.qualification,
+            class_id: formData.class_id || null,
+            subject_id: formData.subject_id || null
+          })
+          .eq('id', editingTeacherId);
+
+        if (teacherError) throw teacherError;
+
+        // Update subject assignment if changed
+        if (formData.subject_id && formData.subject_id !== teacherToUpdate.subject_id) {
+          // Remove from old subject
+          if (teacherToUpdate.subject_id) {
+            await supabase
+              .from('subjects')
+              .update({ teacher_id: null })
+              .eq('id', teacherToUpdate.subject_id);
+          }
+          // Assign to new subject
+          await supabase
+            .from('subjects')
+            .update({ teacher_id: editingTeacherId })
+            .eq('id', formData.subject_id);
+        }
+
+        toast.success('Teacher updated successfully');
+      } else {
+        let profileId = '';
+        
+        // Always use the backend API for user creation to avoid logging out the admin
+        const response = await fetch('/api/admin/create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email,
+            password: formData.password,
+            name: formData.name,
+            role: 'teacher',
+            metadata: { qualification: formData.qualification }
+          })
+        });
+
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to create user account');
+        
+        if (!result.user?.id) throw new Error('User account created but no ID returned');
+        profileId = result.user.id;
+
+        const teacherId = generateUUID();
+
+        // Use upsert to handle the case where the profile might have been created by a trigger
+        const { error: profileError } = await supabase.from('profiles').upsert([{
+          id: profileId,
+          name: formData.name,
+          email: formData.email,
+          role: 'teacher',
+          must_change_password: true,
+          created_at: new Date().toISOString()
+        }], { onConflict: 'id' });
+
+        if (profileError) {
+          console.error('Profile upsert error:', profileError);
+          throw profileError;
+        }
+
+        // Insert into teachers
+        const { error: teacherError } = await supabase.from('teachers').insert([{
+          id: teacherId,
+          profile_id: profileId,
+          qualification: formData.qualification,
+          class_id: formData.class_id || null,
+          subject_id: formData.subject_id || null
+        }]);
+
+        if (teacherError) {
+          console.error('Teacher insert error:', teacherError);
+          throw teacherError;
+        }
+
+        // Assign to subject if selected
+        if (formData.subject_id) {
+          const { error: subjectError } = await supabase
+            .from('subjects')
+            .update({ teacher_id: teacherId })
+            .eq('id', formData.subject_id);
+          
+          if (subjectError) throw subjectError;
+        }
+
+        toast.success('Teacher created and assigned to subject successfully');
+      }
+
+      setIsModalOpen(false);
+      setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_id: '' });
+      setIsEditMode(false);
+      setEditingTeacherId(null);
+      await fetchTeachers();
+      await fetchSubjects(); // Refresh subjects to show new assignment
+    } catch (error: any) {
+      console.error('Error creating teacher:', error);
+      toast.error(error.message || 'An unexpected error occurred');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteTeacher = async (userId: string) => {
+    if (!confirm('Are you sure you want to delete this teacher? This will also delete their auth account.')) return;
+
+    try {
+      const response = await fetch(`/api/admin/delete-user/${userId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error);
+      }
+
+      toast.success('Teacher deleted successfully');
+      fetchTeachers();
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  const openEditModal = (teacher: Teacher) => {
+    setFormData({
+      name: teacher.profile?.name || '',
+      email: teacher.profile?.email || '',
+      password: '', // Don't show password
+      qualification: teacher.qualification || '',
+      class_id: teacher.class_id || '',
+      subject_id: teacher.subject_id || ''
+    });
+    setEditingTeacherId(teacher.id);
+    setIsEditMode(true);
+    setIsModalOpen(true);
+  };
+
+  const openAddModal = () => {
+    setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_id: '' });
+    setIsEditMode(false);
+    setEditingTeacherId(null);
+    setIsModalOpen(true);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordData.password) return;
+
+    setIsSubmitting(true);
+    try {
+      // Always use backend API for password reset to handle Auth user update
+      const response = await fetch(`/api/admin/reset-password/${resetPasswordData.profileId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: resetPasswordData.password })
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to reset password');
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ 
+          must_change_password: true,
+          password_changed_at: null 
+        })
+        .eq('id', resetPasswordData.profileId);
+
+      if (error) throw error;
+      toast.success('Password reset successfully. Teacher must change it on next login.');
+      setIsResetModalOpen(false);
+      setResetPasswordData({ profileId: '', name: '', password: '' });
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openResetModal = (teacher: Teacher) => {
+    setResetPasswordData({
+      profileId: teacher.profile_id,
+      name: teacher.profile?.name || '',
+      password: ''
+    });
+    setIsResetModalOpen(true);
+  };
+
+  const filteredTeachers = teachers.filter(t => 
+    (t.profile?.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (t.profile?.email?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Teacher Management</h1>
+          <p className="text-gray-500">Add, view, and manage teachers in the system.</p>
+        </div>
+        <button
+          onClick={openAddModal}
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          <UserPlus className="w-5 h-5" />
+          Add Teacher
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="p-4 border-b border-gray-200">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search teachers..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 text-gray-600 text-sm font-medium uppercase tracking-wider">
+                <th className="px-6 py-4">Name</th>
+                <th className="px-6 py-4">Email</th>
+                <th className="px-6 py-4">Qualification</th>
+                <th className="px-6 py-4">Assigned Class/Subject</th>
+                <th className="px-6 py-4">Joined</th>
+                <th className="px-6 py-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600" />
+                  </td>
+                </tr>
+              ) : filteredTeachers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                    No teachers found.
+                  </td>
+                </tr>
+              ) : (
+                filteredTeachers.map((teacher) => (
+                  <tr key={teacher.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+                          {teacher.profile?.name?.[0]}
+                        </div>
+                        <span className="font-medium text-gray-900">{teacher.profile?.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">{teacher.profile?.email}</td>
+                    <td className="px-6 py-4 text-gray-600">{teacher.qualification}</td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {teacher.class_id || teacher.subject_id ? (
+                        <div className="flex flex-col gap-1">
+                          {teacher.class_id && (
+                            <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full w-fit">
+                              {classes.find(c => c.id === teacher.class_id)?.name || 'Unknown Class'}
+                            </span>
+                          )}
+                          {teacher.subject_id && (
+                            <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit">
+                              {subjects.find(s => s.id === teacher.subject_id)?.name || 'Unknown Subject'}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="italic text-gray-400">Not assigned</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {new Date(teacher.profile?.created_at || '').toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => openResetModal(teacher)}
+                          className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                          title="Reset Password"
+                        >
+                          <Key className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => openEditModal(teacher)}
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="Edit Teacher"
+                        >
+                          <Edit2 className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTeacher(teacher.profile_id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete Teacher"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add/Edit Teacher Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+            <h2 className="text-xl font-bold text-gray-900 mb-6">{isEditMode ? 'Edit Teacher' : 'Add New Teacher'}</h2>
+            <form onSubmit={handleCreateTeacher} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="email"
+                    required
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              </div>
+              {!isEditMode && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Temporary Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Qualification</label>
+                <div className="relative">
+                  <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    required
+                    value={formData.qualification}
+                    onChange={(e) => setFormData({ ...formData, qualification: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="e.g. M.Sc. Mathematics"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assign Class</label>
+                  <div className="relative">
+                    <School className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <select
+                      value={formData.class_id}
+                      onChange={(e) => setFormData({ ...formData, class_id: e.target.value, subject_id: '' })}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
+                    >
+                      <option value="">Select Class</option>
+                      {classes.map(cls => (
+                        <option key={cls.id} value={cls.id}>{cls.name} ({cls.grade})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assign Subject</label>
+                  <div className="relative">
+                    <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <select
+                      value={formData.subject_id}
+                      onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
+                      disabled={!formData.class_id}
+                    >
+                      <option value="">Select Subject</option>
+                      {subjects
+                        .filter(s => s.class_id === formData.class_id)
+                        .map(subject => (
+                          <option key={subject.id} value={subject.id}>{subject.name}</option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : (isEditMode ? 'Update Teacher' : 'Create Teacher')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Reset Password Modal */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-orange-100 rounded-lg">
+                <Key className="w-6 h-6 text-orange-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Reset Password</h2>
+                <p className="text-sm text-gray-500">For {resetPasswordData.name}</p>
+              </div>
+            </div>
+            
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Temporary Password</label>
+                <input
+                  type="password"
+                  required
+                  min={6}
+                  value={resetPasswordData.password}
+                  onChange={(e) => setResetPasswordData({ ...resetPasswordData, password: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="Enter new password"
+                />
+                <p className="mt-1 text-xs text-gray-500">Minimum 6 characters. The user will be required to change this on their next login.</p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsResetModalOpen(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    'Reset Password'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
