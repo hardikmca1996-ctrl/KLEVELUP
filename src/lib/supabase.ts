@@ -95,14 +95,30 @@ export interface Result {
   student?: Student;
 }
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://zikxfinrnxsmwhtnsxgx.supabase.co';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Detect if a Stripe key is being used instead of a Supabase key
 const isStripeKey = supabaseAnonKey?.startsWith('sb_publishable_');
 
-// Use mock client if key is missing or invalid
-export const isDemoMode = !supabaseAnonKey || isStripeKey;
+// Use mock client ONLY in development if key is missing or invalid
+// In production (Vercel), we want to force real data or fail clearly
+export const isDemoMode = (() => {
+  // 1. If we have keys, we are NOT in demo mode
+  if (supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith('https://') && !isStripeKey) {
+    return false;
+  }
+
+  // 2. If we are on Vercel or in Production build, we are NOT in demo mode
+  // This forces the app to show the configuration error instead of mock data
+  const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+  if (import.meta.env.PROD || isVercel) {
+    return false;
+  }
+
+  // 3. In local development, allow demo mode if keys are missing
+  return !supabaseAnonKey || !supabaseUrl || isStripeKey;
+})();
 
 if (isDemoMode) {
   console.warn(
@@ -115,4 +131,8 @@ if (isDemoMode) {
 export const supabase = isDemoMode 
   ? (mockSupabase as any) 
   : createClient(supabaseUrl, supabaseAnonKey!);
+
+if (typeof window !== 'undefined') {
+  console.log(`[Supabase] Initialized in ${isDemoMode ? 'DEMO' : 'PRODUCTION'} mode`);
+}
 

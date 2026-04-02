@@ -13,10 +13,11 @@ export default function Login() {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
   const { user, profile, profileError, signOut } = useAuth();
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const isStripeKey = supabaseAnonKey?.startsWith('sb_publishable_');
   const [forceDemo, setForceDemo] = useState(false);
-  const isInvalidKey = !forceDemo && (profileError?.message === 'Invalid API key' || profileError?.code === 'PGRST111' || isStripeKey);
+  const isInvalidKey = !forceDemo && (!supabaseAnonKey || !supabaseUrl || profileError?.message === 'Invalid API key' || profileError?.code === 'PGRST111' || isStripeKey);
 
   useEffect(() => {
     if (user && profile) {
@@ -99,19 +100,24 @@ ON CONFLICT (id) DO UPDATE SET role = 'admin';`;
                   </p>
                 </div>
               ) : (
-                <p>
-                  The <strong>Supabase Anon Key</strong> configured in your settings is invalid or missing.
-                </p>
+                <div className="bg-red-50 p-4 rounded-lg border border-red-200 mb-4">
+                  <p className="text-red-800 font-bold mb-1">Configuration Missing</p>
+                  <ul className="text-red-700 text-xs list-disc pl-4 space-y-1">
+                    {!supabaseUrl && <li><code>VITE_SUPABASE_URL</code> is missing</li>}
+                    {!supabaseAnonKey && <li><code>VITE_SUPABASE_ANON_KEY</code> is missing</li>}
+                    {supabaseUrl && !supabaseUrl.startsWith('https://') && <li><code>VITE_SUPABASE_URL</code> must start with https://</li>}
+                  </ul>
+                </div>
               )}
               <p className="font-medium text-gray-800">
-                To fix this:
+                To fix this on Vercel:
               </p>
               <ol className="list-decimal pl-5 space-y-2">
-                <li>Go to your <strong>Supabase Dashboard</strong>.</li>
-                <li>Navigate to <strong>Settings &gt; API</strong>.</li>
-                <li>Copy the <strong>anon public</strong> key.</li>
-                <li>In <strong>AI Studio</strong>, go to <strong>Settings</strong>.</li>
-                <li>Update <code>VITE_SUPABASE_ANON_KEY</code> with the copied key.</li>
+                <li>Go to your <strong>Vercel Dashboard</strong>.</li>
+                <li>Navigate to <strong>Settings &gt; Environment Variables</strong>.</li>
+                <li>Add <code>VITE_SUPABASE_URL</code> (Project URL).</li>
+                <li>Add <code>VITE_SUPABASE_ANON_KEY</code> (anon public key).</li>
+                <li className="text-indigo-600 font-bold">Important: You must REDEPLOY your project on Vercel after adding these.</li>
               </ol>
             </div>
 
@@ -123,13 +129,15 @@ ON CONFLICT (id) DO UPDATE SET role = 'admin';`;
                 I've updated the key, refresh
               </button>
               
-              <button
-                onClick={() => setForceDemo(true)}
-                className="w-full px-6 py-2 border border-gray-300 text-gray-700 font-medium rounded-md hover:bg-gray-50 transition-colors flex items-center justify-center space-x-2"
-              >
-                <Terminal className="h-4 w-4" />
-                <span>Try Demo Mode (Mock Data)</span>
-              </button>
+              {import.meta.env.DEV && (
+                <button
+                  onClick={() => setForceDemo(true)}
+                  className="w-full px-6 py-2 border border-gray-300 text-gray-700 font-medium rounded-md hover:bg-gray-50 transition-colors flex items-center justify-center space-x-2"
+                >
+                  <Terminal className="h-4 w-4" />
+                  <span>Try Demo Mode (Mock Data)</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
