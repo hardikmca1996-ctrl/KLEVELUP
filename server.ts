@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
@@ -10,39 +9,65 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Create a Supabase client with the service role key for admin operations
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://zikxfinrnxsmwhtnsxgx.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Lazy initialization of Supabase Admin client
+let supabaseAdminInstance: any = null;
 
-const supabaseAdmin = (supabaseUrl && supabaseServiceKey) 
-  ? createClient(supabaseUrl, supabaseServiceKey, {
+function getSupabaseAdmin() {
+  if (supabaseAdminInstance) return supabaseAdminInstance;
+  
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error("Missing Supabase configuration:", { 
+      url: !!supabaseUrl, 
+      key: !!supabaseServiceKey 
+    });
+    return null;
+  }
+  
+  try {
+    supabaseAdminInstance = createClient(supabaseUrl, supabaseServiceKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
       }
-    })
-  : null;
+    });
+    return supabaseAdminInstance;
+  } catch (error) {
+    console.error("Failed to initialize Supabase Admin:", error);
+    return null;
+  }
+}
 
 const app = express();
 app.use(express.json());
 
+// Health check route
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV,
+    vercel: !!process.env.VERCEL,
+    supabaseConfigured: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+  });
+});
+
 // Admin API Routes
 app.post("/api/admin/create-user", async (req, res) => {
   const { email, password, name, role, metadata } = req.body;
+  const admin = getSupabaseAdmin();
 
-  if (!supabaseAdmin) {
-    const missing = [];
-    if (!supabaseUrl) missing.push("VITE_SUPABASE_URL");
-    if (!supabaseServiceKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
-    
+  if (!admin) {
     return res.status(500).json({ 
       success: false, 
-      error: `Supabase Admin client not initialized. Missing: ${missing.join(", ")}. Please set these in your environment variables.` 
+      error: "Supabase Admin client not initialized. Please check your environment variables (VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)." 
     });
   }
 
   try {
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    const { data, error } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -52,35 +77,33 @@ app.post("/api/admin/create-user", async (req, res) => {
     if (error) throw error;
     return res.json({ success: true, user: data.user });
   } catch (error: any) {
+    console.error("Error creating user:", error);
     return res.status(400).json({ success: false, error: error.message });
   }
 });
 
 app.post("/api/admin/create-bucket", async (req, res) => {
   const { bucketName } = req.body;
+  const admin = getSupabaseAdmin();
 
-  if (!supabaseAdmin) {
-    const missing = [];
-    if (!supabaseUrl) missing.push("VITE_SUPABASE_URL");
-    if (!supabaseServiceKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
-
+  if (!admin) {
     return res.status(500).json({ 
       success: false, 
-      error: `Supabase Admin client not initialized. Missing: ${missing.join(", ")}. Please set these in your environment variables.` 
+      error: "Supabase Admin client not initialized." 
     });
   }
 
   try {
     // First check if it exists
-    const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
+    const { data: buckets, error: listError } = await admin.storage.listBuckets();
     if (listError) throw listError;
 
-    const exists = buckets?.find(b => b.name === bucketName);
+    const exists = buckets?.find((b: any) => b.name === bucketName);
     if (exists) {
       return res.json({ success: true, message: 'Bucket already exists', data: exists });
     }
 
-    const { data, error } = await supabaseAdmin.storage.createBucket(bucketName, {
+    const { data, error } = await admin.storage.createBucket(bucketName, {
       public: true,
       allowedMimeTypes: ['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
       fileSizeLimit: 10485760 // 10MB
@@ -98,49 +121,53 @@ app.post("/api/admin/create-bucket", async (req, res) => {
 app.post("/api/admin/reset-password/:id", async (req, res) => {
   const { id } = req.params;
   const { password } = req.body;
+  const admin = getSupabaseAdmin();
 
-  if (supabaseAdmin) {
-    try {
-      const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
-        password
-      });
-
-      if (error) throw error;
-      return res.json({ success: true });
-    } catch (error: any) {
-      return res.status(400).json({ success: false, error: error.message });
-    }
+  if (!admin) {
+    return res.status(500).json({ success: false, error: "Supabase Admin client not initialized." });
   }
 
-  res.json({ success: true });
+  try {
+    const { error } = await admin.auth.admin.updateUserById(id, {
+      password
+    });
+
+    if (error) throw error;
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error("Error resetting password:", error);
+    return res.status(400).json({ success: false, error: error.message });
+  }
 });
 
 app.delete("/api/admin/delete-user/:id", async (req, res) => {
   const { id } = req.params;
+  const admin = getSupabaseAdmin();
 
-  if (supabaseAdmin) {
-    try {
-      await supabaseAdmin.from('students').delete().eq('profile_id', id);
-      await supabaseAdmin.from('teachers').delete().eq('profile_id', id);
-      await supabaseAdmin.from('profiles').delete().eq('id', id);
-
-      const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
-      
-      if (error) {
-        if (error.message.includes('User not found')) {
-          return res.json({ success: true, message: 'User not found in auth, but profile data cleared' });
-        }
-        throw error;
-      }
-      
-      return res.json({ success: true });
-    } catch (error: any) {
-      console.error('Error deleting user:', error);
-      return res.status(400).json({ success: false, error: error.message });
-    }
+  if (!admin) {
+    return res.status(500).json({ success: false, error: "Supabase Admin client not initialized." });
   }
 
-  res.json({ success: true });
+  try {
+    // Delete related records first
+    await admin.from('students').delete().eq('profile_id', id);
+    await admin.from('teachers').delete().eq('profile_id', id);
+    await admin.from('profiles').delete().eq('id', id);
+
+    const { error } = await admin.auth.admin.deleteUser(id);
+    
+    if (error) {
+      if (error.message.includes('User not found')) {
+        return res.json({ success: true, message: 'User not found in auth, but profile data cleared' });
+      }
+      throw error;
+    }
+    
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error deleting user:', error);
+    return res.status(400).json({ success: false, error: error.message });
+  }
 });
 
 // Export the app for Vercel
@@ -151,6 +178,7 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { 
         middlewareMode: true,
@@ -175,7 +203,10 @@ async function startServer() {
   }
 }
 
-// Only call startServer if this file is run directly
-if (import.meta.url === `file://${process.cwd()}/server.ts` || !process.env.VERCEL) {
+// Only call startServer if this file is run directly and not on Vercel
+const isMainModule = import.meta.url === `file://${process.cwd()}/server.ts` || 
+                    import.meta.url === `file://${path.join(process.cwd(), 'server.ts')}`;
+
+if (isMainModule && !process.env.VERCEL) {
   startServer();
 }

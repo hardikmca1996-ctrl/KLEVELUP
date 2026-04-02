@@ -133,7 +133,15 @@ export default function TeacherManagement() {
           })
         });
 
-        const result = await response.json();
+        const responseText = await response.text();
+        let result;
+        try {
+          result = JSON.parse(responseText);
+        } catch (e) {
+          console.error('Server returned non-JSON response:', responseText);
+          throw new Error(`Server error: ${responseText.substring(0, 100)}...`);
+        }
+
         if (!response.ok) throw new Error(result.error || 'Failed to create user account');
         
         if (!result.user?.id) throw new Error('User account created but no ID returned');
@@ -205,8 +213,16 @@ export default function TeacherManagement() {
         method: 'DELETE'
       });
 
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Server returned non-JSON response:', responseText);
+        throw new Error(`Server error: ${responseText.substring(0, 100)}...`);
+      }
+
       if (!response.ok) {
-        const result = await response.json();
         throw new Error(result.error);
       }
 
@@ -265,8 +281,16 @@ export default function TeacherManagement() {
         body: JSON.stringify({ password: resetPasswordData.password })
       });
 
+      const responseText = await response.text();
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Server returned non-JSON response:', responseText);
+        throw new Error(`Server error: ${responseText.substring(0, 100)}...`);
+      }
+
       if (!response.ok) {
-        const result = await response.json();
         throw new Error(result.error || 'Failed to reset password');
       }
 
