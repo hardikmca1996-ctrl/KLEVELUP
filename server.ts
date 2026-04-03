@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
+console.log("[Server] Starting initialization...");
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,10 +17,11 @@ function getSupabaseAdmin() {
   if (supabaseAdminInstance) return supabaseAdminInstance;
   
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Check both with and without VITE_ prefix for service role key
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
   
   if (!supabaseUrl || !supabaseServiceKey) {
-    console.error("Missing Supabase configuration:", { 
+    console.error("[Supabase Admin] Missing configuration:", { 
       url: !!supabaseUrl, 
       key: !!supabaseServiceKey 
     });
@@ -33,9 +35,10 @@ function getSupabaseAdmin() {
         persistSession: false
       }
     });
+    console.log("[Supabase Admin] Client initialized successfully");
     return supabaseAdminInstance;
   } catch (error) {
-    console.error("Failed to initialize Supabase Admin:", error);
+    console.error("[Supabase Admin] Failed to initialize Supabase Admin:", error);
     return null;
   }
 }
@@ -45,28 +48,34 @@ app.use(express.json());
 
 // Health check route
 app.get("/api/health", (req, res) => {
+  const admin = getSupabaseAdmin();
   res.json({ 
     status: "ok", 
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV,
     vercel: !!process.env.VERCEL,
-    supabaseConfigured: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    supabaseUrl: !!process.env.VITE_SUPABASE_URL,
+    supabaseServiceKey: !!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY),
+    adminClientInitialized: !!admin
   });
 });
 
 // Admin API Routes
 app.post("/api/admin/create-user", async (req, res) => {
-  const { email, password, name, role, metadata } = req.body;
-  const admin = getSupabaseAdmin();
-
-  if (!admin) {
-    return res.status(500).json({ 
-      success: false, 
-      error: "Supabase Admin client not initialized. Please check your environment variables (VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)." 
-    });
-  }
-
   try {
+    const { email, password, name, role, metadata } = req.body;
+    console.log(`[Admin API] Attempting to create user: ${email} with role: ${role}`);
+    
+    const admin = getSupabaseAdmin();
+
+    if (!admin) {
+      console.error("[Admin API] Supabase Admin client missing during user creation");
+      return res.status(500).json({ 
+        success: false, 
+        error: "Supabase Admin client not initialized. Please check your Vercel Environment Variables: VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set." 
+      });
+    }
+
     const { data, error } = await admin.auth.admin.createUser({
       email,
       password,
@@ -74,11 +83,19 @@ app.post("/api/admin/create-user", async (req, res) => {
       user_metadata: { ...metadata, name, role }
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error("[Admin API] Supabase Auth error:", error);
+      return res.status(400).json({ success: false, error: error.message });
+    }
+    
+    console.log("[Admin API] User created successfully in Auth:", data.user?.id);
     return res.json({ success: true, user: data.user });
   } catch (error: any) {
-    console.error("Error creating user:", error);
-    return res.status(400).json({ success: false, error: error.message });
+    console.error("[Admin API] Unhandled error in create-user route:", error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message || "An unexpected error occurred on the server" 
+    });
   }
 });
 
