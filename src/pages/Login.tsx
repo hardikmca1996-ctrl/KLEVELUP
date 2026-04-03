@@ -296,21 +296,6 @@ ON CONFLICT (id) DO UPDATE SET role = 'admin';`;
             </div>
           </form>
 
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
-              </div>
-              <div className="relative flex flex-col items-center text-sm">
-                <span className="px-2 bg-white text-gray-500 mb-4">
-                  Account Setup Required
-                </span>
-                <p className="text-xs text-gray-400 text-center px-4">
-                  Please ensure you have run the SQL schema in your Supabase dashboard and created your user accounts.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
