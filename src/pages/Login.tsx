@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { BookOpen, Lock, Mail, Loader2, Eye, EyeOff, AlertCircle, Terminal, Copy, Check } from 'lucide-react';
+import { BookOpen, Lock, Mail, Loader2, Eye, EyeOff, AlertCircle, Terminal, Copy, Check, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -296,6 +296,17 @@ ON CONFLICT (id) DO UPDATE SET role = 'admin';`;
             </div>
           </form>
 
+          <div className="mt-8 pt-6 border-t border-gray-100">
+            <div className="flex justify-center">
+              <Link 
+                to="/privacy-policy" 
+                className="flex items-center space-x-2 text-xs text-gray-400 hover:text-indigo-600 transition-colors group"
+              >
+                <Shield className="h-3 w-3 group-hover:animate-pulse" />
+                <span>Privacy Policy</span>
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     </div>
