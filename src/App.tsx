@@ -20,6 +20,7 @@ import StudentDashboard from './pages/student/StudentDashboard';
 import StudentResults from './pages/student/StudentResults';
 import StudentAttendance from './pages/student/StudentAttendance';
 import StudentNotes from './pages/student/StudentNotes';
+import DeleteAccount from './pages/student/DeleteAccount';
 import NotesManagement from './pages/shared/NotesManagement';
 import AnnouncementManagement from './pages/shared/AnnouncementManagement';
 import ChangePassword from './pages/shared/ChangePassword';
@@ -75,6 +76,7 @@ export default function App() {
               <Route path="/student/results" element={<StudentResults />} />
               <Route path="/student/notes" element={<StudentNotes />} />
               <Route path="/student/announcements" element={<AnnouncementManagement />} />
+              <Route path="/student/delete-account" element={<DeleteAccount />} />
             </Route>
           </Route>
 

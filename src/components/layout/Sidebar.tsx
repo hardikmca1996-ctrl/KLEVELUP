@@ -13,7 +13,8 @@ import {
   LogOut,
   Key,
   FileText,
-  Bell
+  Bell,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -53,6 +54,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     { to: '/student/results', icon: FileSpreadsheet, label: 'Results' },
     { to: '/student/notes', icon: FileText, label: 'Notes' },
     { to: '/student/announcements', icon: Bell, label: 'Announcements' },
+    { to: '/student/delete-account', icon: Trash2, label: 'Delete Account' },
   ];
 
   const links = profile?.role === 'admin' 

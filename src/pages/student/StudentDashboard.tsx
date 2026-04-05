@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, type Lecture, type Result, type Exam } from '../../lib/supabase';
-import { BookOpen, Calendar, GraduationCap, CheckSquare, TrendingUp, Clock, Bell, Megaphone } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { BookOpen, Calendar, GraduationCap, CheckSquare, TrendingUp, Clock, Bell, Megaphone, Trash2, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDate, formatTime } from '../../lib/utils';
 import { format } from 'date-fns';
@@ -25,6 +26,7 @@ interface Announcement {
 
 export default function StudentDashboard() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     subjects: 0,
     attendance: 0,
@@ -281,6 +283,28 @@ export default function StudentDashboard() {
               <p className="text-xs text-gray-500 uppercase font-bold">Present</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Danger Zone */}
+      <div className="pt-8 border-t border-gray-200">
+        <div className="bg-red-50 rounded-xl p-6 border border-red-100 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-red-100 rounded-full text-red-600">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-red-900">Danger Zone</h3>
+              <p className="text-red-700 text-sm">Need to leave KLEVELUP? You can permanently delete your account here.</p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate('/student/delete-account')}
+            className="flex items-center gap-2 px-6 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors shadow-sm shadow-red-200"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete Account
+          </button>
         </div>
       </div>
     </div>
