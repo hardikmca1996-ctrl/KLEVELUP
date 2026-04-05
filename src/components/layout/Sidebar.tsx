@@ -33,6 +33,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     { to: '/admin/results', icon: FileSpreadsheet, label: 'Results' },
     { to: '/admin/notes', icon: FileText, label: 'Notes' },
     { to: '/admin/announcements', icon: Bell, label: 'Announcements' },
+    { to: '/admin/deletion-requests', icon: Trash2, label: 'Deletion Requests' },
   ];
 
   const teacherLinks = [

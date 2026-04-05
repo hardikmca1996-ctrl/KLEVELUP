@@ -23,6 +23,7 @@ import StudentNotes from './pages/student/StudentNotes';
 import DeleteAccount from './pages/student/DeleteAccount';
 import NotesManagement from './pages/shared/NotesManagement';
 import AnnouncementManagement from './pages/shared/AnnouncementManagement';
+import DeletionRequests from './pages/admin/DeletionRequests';
 import ChangePassword from './pages/shared/ChangePassword';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 
@@ -48,6 +49,7 @@ export default function App() {
               <Route path="/admin/results" element={<ResultManagement />} />
               <Route path="/admin/notes" element={<NotesManagement />} />
               <Route path="/admin/announcements" element={<AnnouncementManagement />} />
+              <Route path="/admin/deletion-requests" element={<DeletionRequests />} />
             </Route>
           </Route>
 

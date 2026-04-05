@@ -95,6 +95,15 @@ export interface Result {
   student?: Student;
 }
 
+export interface DeletionRequest {
+  id: string;
+  profile_id: string;
+  reason: string;
+  status: 'pending' | 'completed' | 'rejected';
+  created_at: string;
+  profile?: Profile;
+}
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 

@@ -295,7 +295,7 @@ export default function StudentDashboard() {
             </div>
             <div>
               <h3 className="text-lg font-bold text-red-900">Danger Zone</h3>
-              <p className="text-red-700 text-sm">Need to leave KLEVELUP? You can permanently delete your account here.</p>
+              <p className="text-red-700 text-sm">Need to leave KLEVELUP? You can submit a deletion request to the administration here.</p>
             </div>
           </div>
           <button
@@ -303,7 +303,7 @@ export default function StudentDashboard() {
             className="flex items-center gap-2 px-6 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors shadow-sm shadow-red-200"
           >
             <Trash2 className="w-4 h-4" />
-            Delete Account
+            Request Deletion
           </button>
         </div>
       </div>
