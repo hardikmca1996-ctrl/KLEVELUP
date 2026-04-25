@@ -1,19 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { supabase, type Subject, type Teacher, type Class } from '../../lib/supabase';
-import { Plus, Trash2, BookOpen, Loader2, User, School, Edit2, X, Check } from 'lucide-react';
+import { supabase, type Subject, type Teacher, type Class, type Student } from '../../lib/supabase';
+import { Plus, Trash2, BookOpen, Loader2, User, School, Edit2, X, Check, Search, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../../contexts/AuthContext';
+import { cn } from '../../lib/utils';
 
 export default function SubjectManagement() {
   const { profile } = useAuth();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingStudents, setLoadingStudents] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [editFormData, setEditFormData] = useState({
     name: '',
     teacher_id: '',
@@ -35,6 +40,31 @@ export default function SubjectManagement() {
       fetchData();
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (selectedClassId) {
+      fetchStudents(selectedClassId);
+    } else {
+      setStudents([]);
+    }
+  }, [selectedClassId]);
+
+  async function fetchStudents(classId: string) {
+    setLoadingStudents(true);
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('*, profile:profiles(*)')
+        .eq('class_id', classId);
+      
+      if (error) throw error;
+      setStudents(data || []);
+    } catch (error: any) {
+      toast.error('Failed to fetch students: ' + error.message);
+    } finally {
+      setLoadingStudents(false);
+    }
+  }
 
   async function fetchData() {
     if (!profile) return;
@@ -157,6 +187,12 @@ export default function SubjectManagement() {
     });
   };
 
+  const filteredSubjects = subjects.filter(subject => {
+    const matchesSearch = (subject.name?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+    const matchesClass = selectedClassId ? subject.class_id === selectedClassId : true;
+    return matchesSearch && matchesClass;
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -179,17 +215,126 @@ export default function SubjectManagement() {
         )}
       </div>
 
+      {/* Class Filtering Section */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        {classes.map(cls => {
+          const count = subjects.filter(s => s.class_id === cls.id).length;
+          return (
+            <button
+              key={cls.id}
+              onClick={() => setSelectedClassId(cls.id === selectedClassId ? '' : cls.id)}
+              className={cn(
+                "p-4 rounded-xl border text-left transition-all",
+                selectedClassId === cls.id 
+                  ? "bg-indigo-50 border-indigo-200 ring-2 ring-indigo-500/20" 
+                  : "bg-white border-gray-100 hover:border-indigo-100 hover:shadow-sm"
+              )}
+            >
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{cls.name}</p>
+              <p className={cn(
+                "text-2xl font-bold mt-1",
+                selectedClassId === cls.id ? "text-indigo-600" : "text-gray-900"
+              )}>
+                {count}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-1">Subjects</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search subjects..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+          />
+        </div>
+        
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <span className="text-sm font-medium text-gray-500 whitespace-nowrap hidden lg:block">Filter by Class:</span>
+          <div className="relative w-full md:w-64">
+            <School className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+            <select
+              value={selectedClassId}
+              onChange={(e) => setSelectedClassId(e.target.value)}
+              className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none bg-white font-medium text-gray-700"
+            >
+              <option value="">All Classes</option>
+              {classes.map((cls) => (
+                <option key={cls.id} value={cls.id}>
+                  {cls.name} ({cls.grade})
+                </option>
+              ))}
+            </select>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+              <Plus className="w-4 h-4 rotate-45" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {selectedClassId && (
+        <div className="bg-gradient-to-r from-indigo-50 to-white p-6 rounded-xl border border-indigo-100 animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-100 rounded-lg">
+                <Users className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  Students in {classes.find(c => c.id === selectedClassId)?.name}
+                </h2>
+                <p className="text-sm text-gray-500">
+                  These students belong to the selected class.
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-indigo-600">{students.length}</p>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Total Students</p>
+            </div>
+          </div>
+          
+          {loadingStudents ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+            </div>
+          ) : students.length === 0 ? (
+            <p className="text-sm text-gray-500 italic text-center py-4">No students enrolled in this class yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {students.map((student) => (
+                <div 
+                  key={student.id} 
+                  className="px-3 py-1.5 bg-white border border-gray-200 rounded-full text-sm font-medium text-gray-700 flex items-center gap-2 hover:border-indigo-300 hover:shadow-sm transition-all"
+                >
+                  <div className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-[10px] font-bold">
+                    {student.profile?.name?.[0]}
+                  </div>
+                  {student.profile?.name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           [...Array(6)].map((_, i) => (
             <div key={i} className="h-40 bg-gray-100 animate-pulse rounded-xl"></div>
           ))
-        ) : subjects.length === 0 ? (
+        ) : filteredSubjects.length === 0 ? (
           <div className="col-span-full py-12 text-center text-gray-500 bg-white rounded-xl border border-dashed border-gray-300">
-            No subjects created yet.
+            {searchTerm || selectedClassId ? 'No matching subjects found.' : 'No subjects created yet.'}
           </div>
         ) : (
-          subjects.map((subject) => (
+          filteredSubjects.map((subject) => (
             <div key={subject.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
               {editingId === subject.id ? (
                 <div className="space-y-4">
