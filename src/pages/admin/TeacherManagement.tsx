@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, type Teacher, type Class, type Subject, isDemoMode } from '../../lib/supabase';
-import { UserPlus, Trash2, Search, Loader2, Mail, GraduationCap, School, BookOpen, Edit2, Key } from 'lucide-react';
+import { UserPlus, Trash2, Search, Loader2, Mail, GraduationCap, School, BookOpen, Edit2, Key, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { generateUUID } from '../../lib/utils';
 
