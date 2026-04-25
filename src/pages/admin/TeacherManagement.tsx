@@ -22,7 +22,7 @@ export default function TeacherManagement() {
     email: '',
     password: '',
     qualification: '',
-    class_id: '',
+    class_ids: [] as string[],
     subject_ids: [] as string[]
   });
 
@@ -96,7 +96,8 @@ export default function TeacherManagement() {
           .from('teachers')
           .update({
             qualification: formData.qualification,
-            class_id: formData.class_id || null
+            class_ids: formData.class_ids,
+            class_id: formData.class_ids[0] || null // For backward compatibility
           })
           .eq('id', editingTeacherId);
 
@@ -170,7 +171,8 @@ export default function TeacherManagement() {
           id: teacherId,
           profile_id: profileId,
           qualification: formData.qualification,
-          class_id: formData.class_id || null
+          class_ids: formData.class_ids,
+          class_id: formData.class_ids[0] || null
         }]);
 
         if (teacherError) {
@@ -192,7 +194,7 @@ export default function TeacherManagement() {
       }
 
       setIsModalOpen(false);
-      setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_ids: [] });
+      setFormData({ name: '', email: '', password: '', qualification: '', class_ids: [], subject_ids: [] });
       setIsEditMode(false);
       setEditingTeacherId(null);
       await fetchTeachers();
@@ -254,7 +256,7 @@ export default function TeacherManagement() {
       email: teacher.profile?.email || '',
       password: '', // Don't show password
       qualification: teacher.qualification || '',
-      class_id: teacher.class_id || '',
+      class_ids: teacher.class_ids || (teacher.class_id ? [teacher.class_id] : []),
       subject_ids: teacher.subjects?.map(s => s.id) || []
     });
     setEditingTeacherId(teacher.id);
@@ -263,7 +265,7 @@ export default function TeacherManagement() {
   };
 
   const openAddModal = () => {
-    setFormData({ name: '', email: '', password: '', qualification: '', class_id: '', subject_ids: [] });
+    setFormData({ name: '', email: '', password: '', qualification: '', class_ids: [], subject_ids: [] });
     setIsEditMode(false);
     setEditingTeacherId(null);
     setIsModalOpen(true);
@@ -326,7 +328,9 @@ export default function TeacherManagement() {
   const filteredTeachers = teachers.filter(t => {
     const matchesSearch = (t.profile?.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                           (t.profile?.email?.toLowerCase() || '').includes(searchTerm.toLowerCase());
-    const matchesClass = selectedClassId ? t.class_id === selectedClassId : true;
+    const matchesClass = selectedClassId 
+      ? (t.class_id === selectedClassId || t.class_ids?.includes(selectedClassId)) 
+      : true;
     return matchesSearch && matchesClass;
   });
 
@@ -349,7 +353,7 @@ export default function TeacherManagement() {
       {/* Class Statistics Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {classes.map(cls => {
-          const count = teachers.filter(t => t.class_id === cls.id).length;
+          const count = teachers.filter(t => t.class_id === cls.id || t.class_ids?.includes(cls.id)).length;
           return (
             <button
               key={cls.id}
@@ -366,7 +370,7 @@ export default function TeacherManagement() {
               }`}>
                 {count}
               </p>
-              <p className="text-[10px] text-gray-400 mt-1">Class Teacher</p>
+              <p className="text-[10px] text-gray-400 mt-1">Teachers</p>
             </button>
           );
         })}
@@ -449,16 +453,21 @@ export default function TeacherManagement() {
                     <td className="px-6 py-4 text-gray-600">{teacher.profile?.email}</td>
                     <td className="px-6 py-4 text-gray-600">{teacher.qualification}</td>
                     <td className="px-6 py-4 text-gray-600">
-                      {(teacher.class_id || (teacher.subjects && teacher.subjects.length > 0)) ? (
+                      {(teacher.class_id || teacher.class_ids?.length || (teacher.subjects && teacher.subjects.length > 0)) ? (
                         <div className="flex flex-col gap-1">
-                          {teacher.class_id && (
+                          {teacher.class_ids?.map(classId => (
+                            <span key={classId} className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full w-fit">
+                              {classes.find(c => c.id === classId)?.name || 'Unknown Class'} (Class Teacher)
+                            </span>
+                          ))}
+                          {(!teacher.class_ids || teacher.class_ids.length === 0) && teacher.class_id && (
                             <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full w-fit">
-                              {classes.find(c => c.id === teacher.class_id)?.name || 'Unknown Class'}
+                              {classes.find(c => c.id === teacher.class_id)?.name || 'Unknown Class'} (Class Teacher)
                             </span>
                           )}
                           {teacher.subjects?.map(subject => (
                             <span key={subject.id} className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit">
-                              {subject.name}
+                              {subject.name} ({classes.find(c => c.id === subjects.find(s => s.id === subject.id)?.class_id)?.name || 'N/A'})
                             </span>
                           ))}
                         </div>
@@ -559,19 +568,25 @@ export default function TeacherManagement() {
               </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Assign Class (Class Teacher)</label>
-                    <div className="relative">
-                      <School className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <select
-                        value={formData.class_id}
-                        onChange={(e) => setFormData({ ...formData, class_id: e.target.value })}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
-                      >
-                        <option value="">Select Class</option>
-                        {classes.map(cls => (
-                          <option key={cls.id} value={cls.id}>{cls.name} ({cls.grade})</option>
-                        ))}
-                      </select>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Assign Classes (Class Teacher)</label>
+                    <div className="space-y-2 max-h-32 overflow-y-auto p-2 border border-gray-300 rounded-lg bg-gray-50">
+                      {classes.map(cls => (
+                        <label key={cls.id} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={formData.class_ids.includes(cls.id)}
+                            onChange={(e) => {
+                              const newIds = e.target.checked
+                                ? [...formData.class_ids, cls.id]
+                                : formData.class_ids.filter(id => id !== cls.id);
+                              setFormData({ ...formData, class_ids: newIds });
+                            }}
+                            className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                          />
+                          <span className="text-sm text-gray-700">{cls.name} ({cls.grade})</span>
+                        </label>
+                      ))}
+                      {classes.length === 0 && <p className="text-xs text-gray-500 italic">No classes available</p>}
                     </div>
                   </div>
                   <div>
