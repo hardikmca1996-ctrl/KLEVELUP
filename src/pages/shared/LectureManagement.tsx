@@ -143,6 +143,22 @@ export default function LectureManagement() {
     setIsSubmitting(true);
 
     try {
+      // Check for overlapping lectures for the same teacher
+      const { data: overlappingLectures, error: checkError } = await supabase
+        .from('lectures')
+        .select('id')
+        .eq('teacher_id', formData.teacher_id)
+        .eq('date', formData.date)
+        .eq('time', formData.time);
+      
+      if (checkError) throw checkError;
+
+      if (overlappingLectures && overlappingLectures.length > 0) {
+        toast.error('This teacher already has a lecture scheduled for this date and time.');
+        setIsSubmitting(false);
+        return;
+      }
+
       const { error } = await supabase
         .from('lectures')
         .insert([{

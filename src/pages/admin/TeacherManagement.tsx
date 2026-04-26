@@ -65,7 +65,26 @@ export default function TeacherManagement() {
         `);
 
       if (error) throw error;
-      setTeachers(data || []);
+      
+      // Handle multiple classes stored in qualification metadata hack
+      const processedTeachers = (data || []).map(teacher => {
+        let class_ids = teacher.class_id ? [teacher.class_id] : [];
+        let qualification = teacher.qualification || '';
+        
+        const match = qualification.match(/##classes:(.*)##/);
+        if (match) {
+          class_ids = match[1].split(',').filter(Boolean);
+          qualification = qualification.replace(/##classes:.*##/, '').trim();
+        }
+        
+        return {
+          ...teacher,
+          qualification,
+          class_ids
+        };
+      });
+
+      setTeachers(processedTeachers);
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -76,6 +95,10 @@ export default function TeacherManagement() {
     setIsSubmitting(true);
 
     try {
+      // Prepare qualification with metadata hack for multiple classes
+      const qualificationWithMeta = formData.qualification + 
+        (formData.class_ids.length > 1 ? ` ##classes:${formData.class_ids.join(',')}##` : "");
+
       if (isEditMode && editingTeacherId) {
         const teacherToUpdate = teachers.find(t => t.id === editingTeacherId);
         if (!teacherToUpdate) throw new Error('Teacher not found');
@@ -95,9 +118,8 @@ export default function TeacherManagement() {
         const { error: teacherError } = await supabase
           .from('teachers')
           .update({
-            qualification: formData.qualification,
-            class_ids: formData.class_ids,
-            class_id: formData.class_ids[0] || null // For backward compatibility
+            qualification: qualificationWithMeta,
+            class_id: formData.class_ids[0] || null
           })
           .eq('id', editingTeacherId);
 
@@ -170,8 +192,7 @@ export default function TeacherManagement() {
         const { error: teacherError } = await supabase.from('teachers').insert([{
           id: teacherId,
           profile_id: profileId,
-          qualification: formData.qualification,
-          class_ids: formData.class_ids,
+          qualification: qualificationWithMeta,
           class_id: formData.class_ids[0] || null
         }]);
 
